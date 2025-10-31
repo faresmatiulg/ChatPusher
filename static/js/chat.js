@@ -1,4 +1,5 @@
 const API_BASE_URL = 'https://chat-backend-6odp.onrender.com';
+const STORAGE_USER_KEY = 'chat_user';
 
 let usuariosColores = {};
 let contadorUsuarios = 0;
@@ -8,6 +9,8 @@ let channel = null;
 let pusherEnabled = false;
 let isAdmin = false;
 let selectedContact = null;
+let selectedChatId = null;
+let currentUser = null;
 
 // Función para manejar el cambio en el interruptor de administrador
 function handleAdminToggle() {
@@ -98,6 +101,22 @@ function cargarContactosDesdeMensajes() {
         });
 }
 
+function cargarBandeja() {
+    const q = currentUser ? `?username=${encodeURIComponent(currentUser.username)}` : '';
+    fetch(`${API_BASE_URL}/api/chats${q}`)
+        .then(r => r.json())
+        .then(data => {
+            const chats = Array.isArray(data.chats) ? data.chats : [];
+            renderizarChats(chats);
+            prepararBusquedaChats(chats);
+            const general = chats.find(c => c.type === 'general');
+            if (general) seleccionarChat(general);
+        })
+        .catch(() => {
+            renderizarChats([]);
+        });
+}
+
 function construirContactosDesdeMensajes(mensajes) {
     const mapa = new Map();
     mensajes.forEach(m => {
@@ -113,30 +132,30 @@ function construirContactosDesdeMensajes(mensajes) {
     return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-// Función para renderizar la lista de contactos
-function renderizarContactos(contactos) {
+// Función para renderizar la bandeja de chats
+function renderizarChats(chats) {
     const listaContactos = document.getElementById('listaContactos');
     if (!listaContactos) return;
     
     listaContactos.innerHTML = '';
     
-    contactos.forEach(contacto => {
+    chats.forEach(chat => {
         const contactoItem = document.createElement('div');
         contactoItem.className = 'contacto-item';
-        contactoItem.dataset.id = contacto.id;
-        
-        const iniciales = obtenerIniciales(contacto.nombre);
+        contactoItem.dataset.id = chat.id;
+        const displayName = chat.type === 'general' ? 'General' : (chat.name || 'Chat');
+        const iniciales = obtenerIniciales(displayName);
         
         contactoItem.innerHTML = `
             <div class="contacto-avatar">${iniciales}</div>
             <div class="contacto-info">
-                <div class="contacto-nombre">${contacto.nombre}</div>
-                <div class="contacto-estado">${contacto.estado}</div>
+                <div class="contacto-nombre">${displayName}</div>
+                <div class="contacto-estado">${chat.type === 'dm' ? 'Privado' : 'General'}</div>
             </div>
         `;
         
         contactoItem.addEventListener('click', function() {
-            seleccionarContacto(contacto);
+            seleccionarChat(chat);
         });
         
         listaContactos.appendChild(contactoItem);
@@ -153,21 +172,11 @@ function obtenerIniciales(nombre) {
 }
 
 // Función para manejar la selección de un contacto
-function seleccionarContacto(contacto) {
-    console.log('Contacto seleccionado:', contacto);
-    // Guardar contacto seleccionado para conversación privada (solo admin)
-    selectedContact = contacto;
-    // En modo admin, el nombre del remitente puede ser 'Admin' si está vacío
-    const usuarioInput = document.getElementById('usuario');
-    if (usuarioInput && isAdmin && !usuarioInput.value) {
-        usuarioInput.value = 'Admin';
-    }
-    
-    // Destacar el contacto seleccionado
-    resaltarContactoUI(contacto.id);
-    // Actualizar subtítulo
+function seleccionarChat(chat) {
+    selectedChatId = chat.id;
+    selectedContact = chat.type === 'dm' ? { id: chat.id, nombre: chat.name } : null;
+    resaltarContactoUI(chat.id);
     actualizarTituloConversacion();
-    // Cargar mensajes filtrados
     cargarMensajes();
 }
 
@@ -183,21 +192,23 @@ function resaltarContactoUI(id) {
     if (contactoSeleccionado) contactoSeleccionado.classList.add('seleccionado');
 }
 
-function prepararBusquedaContactos(contactos) {
+function prepararBusquedaChats(chats) {
     const inputBusqueda = document.getElementById('buscarContacto');
     if (!inputBusqueda) return;
     inputBusqueda.oninput = function() {
         const q = (this.value || '').toLowerCase();
-        const filtrados = contactos.filter(c => (c.nombre || '').toLowerCase().includes(q));
-        renderizarContactos(filtrados);
+        const filtrados = chats.filter(c => ((c.name || (c.type==='general'?'General':'')) + '').toLowerCase().includes(q));
+        renderizarChats(filtrados);
     };
 }
 
 function actualizarTituloConversacion() {
     const titulo = document.getElementById('tituloConversacion');
     if (!titulo) return;
-    if (isAdmin && selectedContact && selectedContact.nombre) {
+    if (selectedChatId && selectedContact && selectedContact.nombre) {
         titulo.textContent = `Conversación con: ${selectedContact.nombre}`;
+    } else if (selectedChatId) {
+        titulo.textContent = 'Conversación: General';
     } else {
         titulo.textContent = '';
     }
@@ -239,8 +250,8 @@ async function initializePusher() {
 let ultimoMensajeCount = 0;
 
 function cargarMensajes() {
-    const url = (isAdmin && selectedContact && selectedContact.nombre)
-        ? `${API_BASE_URL}/api/messages?usuario=${encodeURIComponent(selectedContact.nombre)}`
+    const url = (selectedChatId)
+        ? `${API_BASE_URL}/api/messages?chat_id=${encodeURIComponent(selectedChatId)}`
         : `${API_BASE_URL}/api/messages`;
     fetch(url)
         .then(response => response.json())
@@ -333,16 +344,19 @@ function enviarMensaje(event) {
     mensajeInput.value = '';
     mensajeInput.disabled = true;
     
-    const data = {
+    const data = selectedChatId ? {
+        chat_id: selectedChatId,
+        contenido: mensaje,
+        username: (currentUser && currentUser.username) ? currentUser.username : usuario
+    } : {
         usuario: usuario,
         mensaje: mensaje,
         tipo_usuario: isAdmin ? 'admin' : 'cliente'
     };
-    if (isAdmin && selectedContact && selectedContact.nombre) {
-        data.destinatario = selectedContact.nombre;
-    }
-    
-    fetch(`${API_BASE_URL}/api/send`, {
+
+    const endpoint = selectedChatId ? `${API_BASE_URL}/api/messages` : `${API_BASE_URL}/api/send`;
+
+    fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -371,17 +385,77 @@ function enviarMensaje(event) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    cargarMensajes();
+    setupSessionUI();
+});
+
+function setupSessionUI() {
+    const stored = localStorage.getItem(STORAGE_USER_KEY);
+    if (stored) {
+        try { currentUser = JSON.parse(stored); } catch (_) {}
+    }
+    const loginView = document.getElementById('loginView');
+    const appHeaderUser = document.getElementById('sessionUser');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const usuarioInput = document.getElementById('usuario');
+
+    if (!currentUser) {
+        if (loginView) loginView.style.display = 'block';
+        bindLoginForm();
+        togglePanelLateral(false);
+        return;
+    }
+
+    if (loginView) loginView.style.display = 'none';
+    if (appHeaderUser) appHeaderUser.textContent = `Sesión: ${currentUser.username}`;
+    if (logoutBtn) logoutBtn.onclick = logout;
+    if (usuarioInput) {
+        usuarioInput.value = currentUser.username;
+        usuarioInput.disabled = true;
+    }
+
+    isAdmin = (currentUser.role === 'admin');
+    togglePanelLateral(isAdmin);
+
     initializePusher();
-    handleAdminToggle();
-    
-    document.getElementById('mensaje').addEventListener('keypress', function(e) {
+    cargarBandeja();
+    prepararComposer();
+}
+
+function bindLoginForm() {
+    const form = document.getElementById('loginForm');
+    if (!form) return;
+    form.onsubmit = async function(e) {
+        e.preventDefault();
+        const username = (document.getElementById('loginUsername').value || '').trim();
+        if (!username) return;
+        const res = await fetch(`${API_BASE_URL}/api/login`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (data && data.user) {
+            localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(data.user));
+            currentUser = data.user;
+            setupSessionUI();
+        }
+    };
+}
+
+function logout() {
+    localStorage.removeItem(STORAGE_USER_KEY);
+    location.reload();
+}
+
+function prepararComposer() {
+    const inputMensaje = document.getElementById('mensaje');
+    if (!inputMensaje) return;
+    inputMensaje.addEventListener('keypress', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             enviarMensaje();
         }
     });
-});
+}
 
 window.addEventListener('beforeunload', function() {
     if (pusher) {
