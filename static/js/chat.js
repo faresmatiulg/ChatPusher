@@ -1,5 +1,4 @@
 const API_BASE_URL = 'https://chat-backend-6odp.onrender.com';
-const STORAGE_USER_KEY = 'chat_user';
 
 let usuariosColores = {};
 let contadorUsuarios = 0;
@@ -9,8 +8,6 @@ let channel = null;
 let pusherEnabled = false;
 let isAdmin = false;
 let selectedContact = null;
-let selectedChatId = null;
-let currentUser = JSON.parse(localStorage.getItem(STORAGE_USER_KEY)) || null;
 
 // Función para manejar el cambio en el interruptor de administrador
 function handleAdminToggle() {
@@ -23,20 +20,23 @@ function handleAdminToggle() {
             // Mostrar u ocultar el panel lateral según el estado del administrador
             togglePanelLateral(isAdmin);
             
+            // Obtener el input del usuario
+            const usuarioInput = document.getElementById('usuario');
+            
             // Cargar contactos si el panel está visible
             if (isAdmin) {
                 cargarContactos();
-                // Si activamos admin y hay un usuario seleccionado previamente, bloquear el input
-                const usuarioInput = document.getElementById('usuario');
-                if (usuarioInput && usuarioInput.value) {
+                // Establecer el usuario como "Administrador" y deshabilitarlo
+                if (usuarioInput) {
+                    usuarioInput.value = 'Administrador';
                     usuarioInput.disabled = true;
                 }
                 // Actualizar subtítulo
                 actualizarTituloConversacion();
             } else {
-                // Al desactivar admin, limpiar selección y habilitar input
-                const usuarioInput = document.getElementById('usuario');
+                // Al desactivar admin, limpiar el input y habilitar
                 if (usuarioInput) {
+                    usuarioInput.value = '';
                     usuarioInput.disabled = false;
                 }
                 selectedContact = null;
@@ -73,21 +73,11 @@ function cargarContactos() {
                 return cargarContactosDesdeMensajes();
             }
             const data = await r.json();
-            let contactos = (data && Array.isArray(data.users)) ? data.users : [];
-            
+            const contactos = (data && Array.isArray(data.users)) ? data.users : [];
             if (!contactos.length) {
                 // Fallback si está vacío
                 return cargarContactosDesdeMensajes();
             }
-            
-            // Add General Chat option
-            contactos.unshift({
-                id: 'general',
-                username: 'Chat General',
-                role: 'general',
-                isGeneral: true
-            });
-            
             renderizarContactos(contactos);
             prepararBusquedaContactos(contactos);
         })
@@ -95,66 +85,6 @@ function cargarContactos() {
             // Fallback por error de red o 404
             cargarContactosDesdeMensajes();
         });
-}
-
-// Función para renderizar la lista de contactos
-function renderizarContactos(contactos) {
-    const listaContactos = document.getElementById('listaContactos');
-    if (!listaContactos) return;
-    
-    listaContactos.innerHTML = ''; // Limpiar lista actual
-    
-    contactos.forEach(contacto => {
-        const elemento = document.createElement('div');
-        const isCurrentUser = currentUser && contacto.username === currentUser.username;
-        const isGeneral = contacto.isGeneral;
-        
-        if (isCurrentUser) return; // No mostrar al usuario actual
-        
-        elemento.className = `contacto ${contacto.role === 'admin' ? 'admin-user' : ''} ${isGeneral ? 'general-chat' : ''}`;
-        
-        if (isGeneral) {
-            elemento.innerHTML = `
-                <div class="contacto-avatar">#</div>
-                <div class="contacto-info">
-                    <div class="contacto-nombre">${contacto.username}</div>
-                    <div class="contacto-role">Todos los usuarios</div>
-                </div>
-            `;
-            
-            elemento.onclick = () => {
-                seleccionarChat({
-                    id: 'general',
-                    name: 'Chat General',
-                    type: 'general'
-                });
-            };
-        } else {
-            elemento.innerHTML = `
-                <div class="contacto-avatar">${obtenerIniciales(contacto.username)}</div>
-                <div class="contacto-info">
-                    <div class="contacto-nombre">
-                        ${contacto.username}
-                        ${contacto.role === 'admin' ? '<span class="admin-badge">Admin</span>' : ''}
-                    </div>
-                    <div class="contacto-role">${contacto.role === 'admin' ? 'Administrador' : 'Usuario'}</div>
-                </div>
-            `;
-            
-            // Solo permitir chatear con usuarios normales o si es admin
-            if (contacto.role !== 'admin' || (currentUser && currentUser.role === 'admin')) {
-                elemento.onclick = () => {
-                    seleccionarChat({
-                        id: `user_${contacto.id}`,
-                        name: contacto.username,
-                        type: 'user'
-                    });
-                };
-            }
-        }
-        
-        listaContactos.appendChild(elemento);
-    });
 }
 
 function cargarContactosDesdeMensajes() {
@@ -168,22 +98,6 @@ function cargarContactosDesdeMensajes() {
         })
         .catch(() => {
             renderizarContactos([]);
-        });
-}
-
-function cargarBandeja() {
-    const q = currentUser ? `?username=${encodeURIComponent(currentUser.username)}` : '';
-    fetch(`${API_BASE_URL}/api/chats${q}`)
-        .then(r => r.json())
-        .then(data => {
-            const chats = Array.isArray(data.chats) ? data.chats : [];
-            renderizarChats(chats);
-            prepararBusquedaChats(chats);
-            const general = chats.find(c => c.type === 'general');
-            if (general) seleccionarChat(general);
-        })
-        .catch(() => {
-            renderizarChats([]);
         });
 }
 
@@ -202,30 +116,30 @@ function construirContactosDesdeMensajes(mensajes) {
     return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-// Función para renderizar la bandeja de chats
-function renderizarChats(chats) {
+// Función para renderizar la lista de contactos
+function renderizarContactos(contactos) {
     const listaContactos = document.getElementById('listaContactos');
     if (!listaContactos) return;
     
     listaContactos.innerHTML = '';
     
-    chats.forEach(chat => {
+    contactos.forEach(contacto => {
         const contactoItem = document.createElement('div');
         contactoItem.className = 'contacto-item';
-        contactoItem.dataset.id = chat.id;
-        const displayName = chat.type === 'general' ? 'General' : (chat.name || 'Chat');
-        const iniciales = obtenerIniciales(displayName);
+        contactoItem.dataset.id = contacto.id;
+        
+        const iniciales = obtenerIniciales(contacto.nombre);
         
         contactoItem.innerHTML = `
             <div class="contacto-avatar">${iniciales}</div>
             <div class="contacto-info">
-                <div class="contacto-nombre">${displayName}</div>
-                <div class="contacto-estado">${chat.type === 'dm' ? 'Privado' : 'General'}</div>
+                <div class="contacto-nombre">${contacto.nombre}</div>
+                <div class="contacto-estado">${contacto.estado}</div>
             </div>
         `;
         
         contactoItem.addEventListener('click', function() {
-            seleccionarChat(chat);
+            seleccionarContacto(contacto);
         });
         
         listaContactos.appendChild(contactoItem);
@@ -242,11 +156,27 @@ function obtenerIniciales(nombre) {
 }
 
 // Función para manejar la selección de un contacto
-function seleccionarChat(chat) {
-    selectedChatId = chat.id;
-    selectedContact = chat.type === 'dm' ? { id: chat.id, nombre: chat.name } : null;
-    resaltarContactoUI(chat.id);
+function seleccionarContacto(contacto) {
+    console.log('Contacto seleccionado:', contacto);
+    // Guardar contacto seleccionado para conversación privada (solo admin)
+    selectedContact = contacto;
+    // En modo admin, mantener el nombre como "Administrador"
+    const usuarioInput = document.getElementById('usuario');
+    if (usuarioInput && isAdmin) {
+        usuarioInput.value = 'Administrador';
+        usuarioInput.disabled = true;
+    }
+    
+    // Destacar el contacto seleccionado
+    resaltarContactoUI(contacto.id);
+    // Actualizar subtítulo
     actualizarTituloConversacion();
+    // Limpiar el contenedor de mensajes
+    const container = document.getElementById('mensajes');
+    if (container) {
+        container.innerHTML = '';
+    }
+    // Cargar mensajes filtrados
     cargarMensajes();
 }
 
@@ -262,23 +192,21 @@ function resaltarContactoUI(id) {
     if (contactoSeleccionado) contactoSeleccionado.classList.add('seleccionado');
 }
 
-function prepararBusquedaChats(chats) {
+function prepararBusquedaContactos(contactos) {
     const inputBusqueda = document.getElementById('buscarContacto');
     if (!inputBusqueda) return;
     inputBusqueda.oninput = function() {
         const q = (this.value || '').toLowerCase();
-        const filtrados = chats.filter(c => ((c.name || (c.type==='general'?'General':'')) + '').toLowerCase().includes(q));
-        renderizarChats(filtrados);
+        const filtrados = contactos.filter(c => (c.nombre || '').toLowerCase().includes(q));
+        renderizarContactos(filtrados);
     };
 }
 
 function actualizarTituloConversacion() {
     const titulo = document.getElementById('tituloConversacion');
     if (!titulo) return;
-    if (selectedChatId && selectedContact && selectedContact.nombre) {
+    if (isAdmin && selectedContact && selectedContact.nombre) {
         titulo.textContent = `Conversación con: ${selectedContact.nombre}`;
-    } else if (selectedChatId) {
-        titulo.textContent = 'Conversación: General';
     } else {
         titulo.textContent = '';
     }
@@ -320,9 +248,7 @@ async function initializePusher() {
 let ultimoMensajeCount = 0;
 
 function cargarMensajes() {
-    const url = (selectedChatId)
-        ? `${API_BASE_URL}/api/messages?chat_id=${encodeURIComponent(selectedChatId)}`
-        : `${API_BASE_URL}/api/messages`;
+    const url = `${API_BASE_URL}/api/messages`;
     fetch(url)
         .then(response => response.json())
         .then(data => {
@@ -333,12 +259,29 @@ function cargarMensajes() {
             const container = document.getElementById('mensajes');
             if (!container) return;
             
-            if (data.messages && data.messages.length !== ultimoMensajeCount) {
+            let mensajesFiltrados = data.messages;
+            if (isAdmin && selectedContact && selectedContact.nombre) {
+                // Filtrar mensajes para mostrar solo la conversación con el contacto seleccionado
+                mensajesFiltrados = data.messages.filter(msg => 
+                    (msg.usuario === selectedContact.nombre && msg.destinatario === 'Administrador') ||
+                    (msg.usuario === 'Administrador' && msg.destinatario === selectedContact.nombre)
+                );
+            } else if (!isAdmin) {
+                // Para usuarios normales, mostrar solo mensajes del chat general y sus mensajes privados con el admin
+                mensajesFiltrados = data.messages.filter(msg => 
+                    !msg.destinatario || // mensajes del chat general
+                    (msg.usuario === document.getElementById('usuario').value && msg.destinatario === 'Administrador') ||
+                    (msg.usuario === 'Administrador' && msg.destinatario === document.getElementById('usuario').value)
+                );
+            }
+            
+            if (mensajesFiltrados && mensajesFiltrados.length !== ultimoMensajeCount) {
                 container.innerHTML = '';
-                ultimoMensajeCount = data.messages.length;
+                ultimoMensajeCount = mensajesFiltrados.length;
                 
-                if (data.messages.length > 0) {
-                    data.messages.forEach(msg => {
+                if (mensajesFiltrados.length > 0) {
+                    mensajesFiltrados.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)); // Ordenar por tiempo
+                    mensajesFiltrados.forEach(msg => {
                         agregarMensaje(msg, false);
                     });
                     container.scrollTop = container.scrollHeight;
@@ -375,19 +318,19 @@ function agregarMensaje(msg, autoScroll = true) {
         div.className = 'mensaje usuario-2';
     }
     
-    // Usar la hora local del navegador en lugar del timestamp del backend
-    const ahora = new Date();
-    const tiempo = ahora.toLocaleTimeString('es-PE', { 
-        hour: 'numeric', 
-        minute: '2-digit',
-        hour12: true 
-    });
+    // Usar timestamp del mensaje si existe, si no usar hora actual
+    const tiempo = msg.timestamp 
+        ? new Date(msg.timestamp).toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit', hour12: true })
+        : new Date().toLocaleTimeString('es-PE', { hour: 'numeric', minute: '2-digit', hour12: true });
     
-    const esAdmin = (msg.tipo_usuario === 'admin');
+    const esAdmin = (msg.tipo_usuario === 'admin' || msg.usuario === 'Administrador');
+    const esMensajePrivado = msg.destinatario && msg.destinatario !== '';
+    
     div.innerHTML = `
         <div class="contenido-mensaje-wrapper">
             ${esAdmin ? '<div class="rol">Administrador</div>' : ''}
             <div class="usuario">${msg.usuario}</div>
+            ${esMensajePrivado ? '<div class="mensaje-privado">Mensaje Privado</div>' : ''}
             <div class="contenido-mensaje">${msg.mensaje}</div>
             <div class="timestamp">${tiempo}</div>
         </div>
@@ -414,19 +357,23 @@ function enviarMensaje(event) {
     mensajeInput.value = '';
     mensajeInput.disabled = true;
     
-    const data = selectedChatId ? {
-        chat_id: selectedChatId,
-        contenido: mensaje,
-        username: (currentUser && currentUser.username) ? currentUser.username : usuario
-    } : {
+    const data = {
         usuario: usuario,
         mensaje: mensaje,
-        tipo_usuario: isAdmin ? 'admin' : 'cliente'
+        tipo_usuario: isAdmin ? 'admin' : 'cliente',
+        timestamp: new Date().toISOString() // Añadir timestamp para ordenar mensajes
     };
 
-    const endpoint = selectedChatId ? `${API_BASE_URL}/api/messages` : `${API_BASE_URL}/api/send`;
-
-    fetch(endpoint, {
+    // Configurar el destinatario según el modo y contexto
+    if (isAdmin && selectedContact && selectedContact.nombre) {
+        // Mensaje privado del admin a un usuario específico
+        data.destinatario = selectedContact.nombre;
+    } else if (!isAdmin && selectedContact && selectedContact.nombre === 'Administrador') {
+        // Mensaje privado de un usuario al admin
+        data.destinatario = 'Administrador';
+    }
+    
+    fetch(`${API_BASE_URL}/api/send`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -455,206 +402,17 @@ function enviarMensaje(event) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    checkSession();
-});
-
-function checkSession() {
-    currentUser = JSON.parse(localStorage.getItem(STORAGE_USER_KEY));
-    if (currentUser) {
-        // User is logged in
-        showChatView();
-        initializePusher();
-        cargarMensajes();
-        
-        // Check if user is admin
-        isAdmin = currentUser.role === 'admin';
-        if (isAdmin) {
-            togglePanelLateral(true);
-            cargarContactos();
-        }
-        
-        // Update UI with current user info
-        const sessionUser = document.getElementById('sessionUser');
-        if (sessionUser) {
-            sessionUser.textContent = currentUser.username + (isAdmin ? ' (Admin)' : '');
-        }
-        
-        // Disable username input and set value
-        const usuarioInput = document.getElementById('usuario');
-        if (usuarioInput) {
-            usuarioInput.value = currentUser.username;
-            usuarioInput.disabled = true;
-        }
-    } else {
-        // Show login view
-        showLoginView();
-    }
-}
-
-function showLoginView() {
-    document.getElementById('loginView').style.display = 'flex';
-    document.querySelector('.contenedor-chat').style.display = 'none';
-    document.getElementById('panelLateral').style.display = 'none';
-    bindLoginForm();
-}
-
-function showChatView() {
-    document.getElementById('loginView').style.display = 'none';
-    document.querySelector('.contenedor-chat').style.display = 'block';
-    if (isAdmin) {
-        document.getElementById('panelLateral').style.display = 'block';
-    }
-    
-    // Update UI with current user
-    const sessionUser = document.getElementById('sessionUser');
-    if (sessionUser) {
-        sessionUser.textContent = currentUser.username + (isAdmin ? ' (Admin)' : '');
-    }
-    
-    // Disable username input and set value
-    const usuarioInput = document.getElementById('usuario');
-    if (usuarioInput) {
-        usuarioInput.value = currentUser.username;
-        usuarioInput.disabled = true;
-    }
-}
-
-function setupSessionUI() {
-    const stored = localStorage.getItem(STORAGE_USER_KEY);
-    if (stored) {
-        try { currentUser = JSON.parse(stored); } catch (_) {}
-    }
-    const loginView = document.getElementById('loginView');
-    const appHeaderUser = document.getElementById('sessionUser');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const usuarioInput = document.getElementById('usuario');
-
-    if (!currentUser) {
-        if (loginView) loginView.style.display = 'block';
-        bindLoginForm();
-        togglePanelLateral(false);
-        return;
-    }
-
-    if (loginView) loginView.style.display = 'none';
-    if (appHeaderUser) appHeaderUser.textContent = `Sesión: ${currentUser.username}`;
-    if (logoutBtn) logoutBtn.onclick = logout;
-    if (usuarioInput) {
-        usuarioInput.value = currentUser.username;
-        usuarioInput.disabled = true;
-    }
-
-    isAdmin = (currentUser.role === 'admin');
-    togglePanelLateral(isAdmin);
-
+    cargarMensajes();
     initializePusher();
-    cargarBandeja();
-    prepararComposer();
-}
-
-function bindLoginForm() {
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) {
-        loginForm.onsubmit = async function(e) {
-            e.preventDefault();
-            const usernameInput = document.getElementById('loginUsername');
-            const username = usernameInput.value.trim();
-            
-            if (!username) {
-                alert('Por favor ingresa un nombre de usuario');
-                return;
-            }
-
-            try {
-                // Auto-register/login the user
-                const response = await fetch(`${API_BASE_URL}/api/login`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ username })
-                });
-
-                if (response.ok) {
-                    const user = await response.json();
-                    currentUser = user;
-                    localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user));
-                    
-                    // Clear the input field
-                    usernameInput.value = '';
-                    
-                    // Update UI and load chat
-                    checkSession();
-                    
-                    // Show success message
-                    const mensajesDiv = document.getElementById('mensajes');
-                    if (mensajesDiv) {
-                        mensajesDiv.scrollTop = mensajesDiv.scrollHeight;
-                    }
-                } else {
-                    const error = await response.json();
-                    alert(error.error || 'Error al iniciar sesión');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error de conexión. Por favor intenta de nuevo.');
-            }
-        };
-        
-        // Focus the username input when login form is shown
-        const usernameInput = document.getElementById('loginUsername');
-        if (usernameInput) {
-            usernameInput.focus();
-        }
-    }
-}
-
-function logout() {
-    // Clear user data
-    localStorage.removeItem(STORAGE_USER_KEY);
-    currentUser = null;
-    isAdmin = false;
-    selectedContact = null;
-    selectedChatId = null;
+    handleAdminToggle();
     
-    // Reset UI
-    const mensajesDiv = document.getElementById('mensajes');
-    if (mensajesDiv) {
-        mensajesDiv.innerHTML = '';
-    }
-    
-    const usuarioInput = document.getElementById('usuario');
-    if (usuarioInput) {
-        usuarioInput.value = '';
-        usuarioInput.disabled = false;
-    }
-    
-    const mensajeInput = document.getElementById('mensaje');
-    if (mensajeInput) {
-        mensajeInput.value = '';
-    }
-    
-    // Show login view
-    showLoginView();
-    
-    // Disconnect Pusher if connected
-    if (pusher) {
-        pusher.disconnect();
-        pusher = null;
-        channel = null;
-    }
-}
-
-function prepararComposer() {
-    const inputMensaje = document.getElementById('mensaje');
-    if (!inputMensaje) return;
-    inputMensaje.addEventListener('keypress', function(e) {
+    document.getElementById('mensaje').addEventListener('keypress', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             enviarMensaje();
         }
     });
-}
+});
 
 window.addEventListener('beforeunload', function() {
     if (pusher) {

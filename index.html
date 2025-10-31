@@ -8,21 +8,6 @@
     <link rel="icon" href="static/favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <div id="loginView" style="display:none;">
-        <div class="contenedor-chat" style="max-width:420px;">
-            <div class="encabezado">
-                <h1>Iniciar sesión</h1>
-            </div>
-            <div class="area-entrada" style="padding:20px;">
-                <form id="loginForm">
-                    <div class="fila-entrada">
-                        <input type="text" id="loginUsername" placeholder="Tu nombre de usuario" required>
-                        <button type="submit" class="btn btn-primario">Entrar</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
     <div class="panel-lateral" id="panelLateral">
         <div class="panel-header">
             <h3>Contactos</h3>
@@ -38,9 +23,12 @@
         <div class="encabezado">
              <h1>Chat en Tiempo Real</h1>
              <div id="tituloConversacion" class="subtitulo-conversacion"></div>
-             <div class="admin-toggle" id="sessionControls">
-                <span id="sessionUser"></span>
-                <button id="logoutBtn" class="btn btn-secundario" style="margin-left:10px;">Cerrar sesión</button>
+             <div class="admin-toggle">
+                <span>Administrador:</span>
+                <label class="switch">
+                    <input type="checkbox" id="adminToggle">
+                    <span class="slider round"></span>
+                </label>
              </div>
          </div>
         
