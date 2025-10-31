@@ -64,15 +64,53 @@ function togglePanelLateral(mostrar) {
 // Función para cargar la lista de contactos
 function cargarContactos() {
     fetch(`${API_BASE_URL}/api/users`)
+        .then(async r => {
+            if (!r.ok) {
+                // Fallback: construir bandeja desde mensajes
+                return cargarContactosDesdeMensajes();
+            }
+            const data = await r.json();
+            const contactos = (data && Array.isArray(data.users)) ? data.users : [];
+            if (!contactos.length) {
+                // Fallback si está vacío
+                return cargarContactosDesdeMensajes();
+            }
+            renderizarContactos(contactos);
+            prepararBusquedaContactos(contactos);
+        })
+        .catch(() => {
+            // Fallback por error de red o 404
+            cargarContactosDesdeMensajes();
+        });
+}
+
+function cargarContactosDesdeMensajes() {
+    fetch(`${API_BASE_URL}/api/messages`)
         .then(r => r.json())
         .then(data => {
-            const contactos = (data && Array.isArray(data.users)) ? data.users : [];
+            const mensajes = Array.isArray(data.messages) ? data.messages : [];
+            const contactos = construirContactosDesdeMensajes(mensajes);
             renderizarContactos(contactos);
             prepararBusquedaContactos(contactos);
         })
         .catch(() => {
             renderizarContactos([]);
         });
+}
+
+function construirContactosDesdeMensajes(mensajes) {
+    const mapa = new Map();
+    mensajes.forEach(m => {
+        const nombre = (m.usuario || '').trim();
+        if (nombre && !mapa.has(nombre)) {
+            mapa.set(nombre, { id: nombre, nombre: nombre, estado: 'N/D' });
+        }
+        const dest = (m.destinatario || '').trim();
+        if (dest && !mapa.has(dest)) {
+            mapa.set(dest, { id: dest, nombre: dest, estado: 'N/D' });
+        }
+    });
+    return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
 // Función para renderizar la lista de contactos
