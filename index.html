@@ -8,9 +8,28 @@
     <link rel="icon" href="static/favicon.ico" type="image/x-icon">
 </head>
 <body>
+    <div class="panel-lateral" id="panelLateral">
+        <div class="panel-header">
+            <h3>Contactos</h3>
+        </div>
+        <div class="panel-search">
+            <input type="text" id="buscarContacto" placeholder="Buscar contacto...">
+        </div>
+        <div class="lista-contactos" id="listaContactos">
+            <!-- Los contactos se cargarán dinámicamente -->
+        </div>
+    </div>
     <div class="contenedor-chat">
         <div class="encabezado">
              <h1>Chat en Tiempo Real</h1>
+             <div id="tituloConversacion" class="subtitulo-conversacion"></div>
+             <div class="admin-toggle">
+                <span>Administrador:</span>
+                <label class="switch">
+                    <input type="checkbox" id="adminToggle">
+                    <span class="slider round"></span>
+                </label>
+             </div>
          </div>
         
         <div id="mensajes" class="area-mensajes">
