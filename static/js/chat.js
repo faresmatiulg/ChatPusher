@@ -10,7 +10,7 @@ let pusherEnabled = false;
 let isAdmin = false;
 let selectedContact = null;
 let selectedChatId = null;
-let currentUser = null;
+let currentUser = JSON.parse(localStorage.getItem(STORAGE_USER_KEY)) || null;
 
 // Función para manejar el cambio en el interruptor de administrador
 function handleAdminToggle() {
@@ -73,11 +73,21 @@ function cargarContactos() {
                 return cargarContactosDesdeMensajes();
             }
             const data = await r.json();
-            const contactos = (data && Array.isArray(data.users)) ? data.users : [];
+            let contactos = (data && Array.isArray(data.users)) ? data.users : [];
+            
             if (!contactos.length) {
                 // Fallback si está vacío
                 return cargarContactosDesdeMensajes();
             }
+            
+            // Add General Chat option
+            contactos.unshift({
+                id: 'general',
+                username: 'Chat General',
+                role: 'general',
+                isGeneral: true
+            });
+            
             renderizarContactos(contactos);
             prepararBusquedaContactos(contactos);
         })
@@ -85,6 +95,66 @@ function cargarContactos() {
             // Fallback por error de red o 404
             cargarContactosDesdeMensajes();
         });
+}
+
+// Función para renderizar la lista de contactos
+function renderizarContactos(contactos) {
+    const listaContactos = document.getElementById('listaContactos');
+    if (!listaContactos) return;
+    
+    listaContactos.innerHTML = ''; // Limpiar lista actual
+    
+    contactos.forEach(contacto => {
+        const elemento = document.createElement('div');
+        const isCurrentUser = currentUser && contacto.username === currentUser.username;
+        const isGeneral = contacto.isGeneral;
+        
+        if (isCurrentUser) return; // No mostrar al usuario actual
+        
+        elemento.className = `contacto ${contacto.role === 'admin' ? 'admin-user' : ''} ${isGeneral ? 'general-chat' : ''}`;
+        
+        if (isGeneral) {
+            elemento.innerHTML = `
+                <div class="contacto-avatar">#</div>
+                <div class="contacto-info">
+                    <div class="contacto-nombre">${contacto.username}</div>
+                    <div class="contacto-role">Todos los usuarios</div>
+                </div>
+            `;
+            
+            elemento.onclick = () => {
+                seleccionarChat({
+                    id: 'general',
+                    name: 'Chat General',
+                    type: 'general'
+                });
+            };
+        } else {
+            elemento.innerHTML = `
+                <div class="contacto-avatar">${obtenerIniciales(contacto.username)}</div>
+                <div class="contacto-info">
+                    <div class="contacto-nombre">
+                        ${contacto.username}
+                        ${contacto.role === 'admin' ? '<span class="admin-badge">Admin</span>' : ''}
+                    </div>
+                    <div class="contacto-role">${contacto.role === 'admin' ? 'Administrador' : 'Usuario'}</div>
+                </div>
+            `;
+            
+            // Solo permitir chatear con usuarios normales o si es admin
+            if (contacto.role !== 'admin' || (currentUser && currentUser.role === 'admin')) {
+                elemento.onclick = () => {
+                    seleccionarChat({
+                        id: `user_${contacto.id}`,
+                        name: contacto.username,
+                        type: 'user'
+                    });
+                };
+            }
+        }
+        
+        listaContactos.appendChild(elemento);
+    });
 }
 
 function cargarContactosDesdeMensajes() {
@@ -385,8 +455,69 @@ function enviarMensaje(event) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    setupSessionUI();
+    checkSession();
 });
+
+function checkSession() {
+    currentUser = JSON.parse(localStorage.getItem(STORAGE_USER_KEY));
+    if (currentUser) {
+        // User is logged in
+        showChatView();
+        initializePusher();
+        cargarMensajes();
+        
+        // Check if user is admin
+        isAdmin = currentUser.role === 'admin';
+        if (isAdmin) {
+            togglePanelLateral(true);
+            cargarContactos();
+        }
+        
+        // Update UI with current user info
+        const sessionUser = document.getElementById('sessionUser');
+        if (sessionUser) {
+            sessionUser.textContent = currentUser.username + (isAdmin ? ' (Admin)' : '');
+        }
+        
+        // Disable username input and set value
+        const usuarioInput = document.getElementById('usuario');
+        if (usuarioInput) {
+            usuarioInput.value = currentUser.username;
+            usuarioInput.disabled = true;
+        }
+    } else {
+        // Show login view
+        showLoginView();
+    }
+}
+
+function showLoginView() {
+    document.getElementById('loginView').style.display = 'flex';
+    document.querySelector('.contenedor-chat').style.display = 'none';
+    document.getElementById('panelLateral').style.display = 'none';
+    bindLoginForm();
+}
+
+function showChatView() {
+    document.getElementById('loginView').style.display = 'none';
+    document.querySelector('.contenedor-chat').style.display = 'block';
+    if (isAdmin) {
+        document.getElementById('panelLateral').style.display = 'block';
+    }
+    
+    // Update UI with current user
+    const sessionUser = document.getElementById('sessionUser');
+    if (sessionUser) {
+        sessionUser.textContent = currentUser.username + (isAdmin ? ' (Admin)' : '');
+    }
+    
+    // Disable username input and set value
+    const usuarioInput = document.getElementById('usuario');
+    if (usuarioInput) {
+        usuarioInput.value = currentUser.username;
+        usuarioInput.disabled = true;
+    }
+}
 
 function setupSessionUI() {
     const stored = localStorage.getItem(STORAGE_USER_KEY);
@@ -422,28 +553,96 @@ function setupSessionUI() {
 }
 
 function bindLoginForm() {
-    const form = document.getElementById('loginForm');
-    if (!form) return;
-    form.onsubmit = async function(e) {
-        e.preventDefault();
-        const username = (document.getElementById('loginUsername').value || '').trim();
-        if (!username) return;
-        const res = await fetch(`${API_BASE_URL}/api/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username })
-        });
-        const data = await res.json();
-        if (data && data.user) {
-            localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(data.user));
-            currentUser = data.user;
-            setupSessionUI();
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.onsubmit = async function(e) {
+            e.preventDefault();
+            const usernameInput = document.getElementById('loginUsername');
+            const username = usernameInput.value.trim();
+            
+            if (!username) {
+                alert('Por favor ingresa un nombre de usuario');
+                return;
+            }
+
+            try {
+                // Auto-register/login the user
+                const response = await fetch(`${API_BASE_URL}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username })
+                });
+
+                if (response.ok) {
+                    const user = await response.json();
+                    currentUser = user;
+                    localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user));
+                    
+                    // Clear the input field
+                    usernameInput.value = '';
+                    
+                    // Update UI and load chat
+                    checkSession();
+                    
+                    // Show success message
+                    const mensajesDiv = document.getElementById('mensajes');
+                    if (mensajesDiv) {
+                        mensajesDiv.scrollTop = mensajesDiv.scrollHeight;
+                    }
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Error al iniciar sesión');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error de conexión. Por favor intenta de nuevo.');
+            }
+        };
+        
+        // Focus the username input when login form is shown
+        const usernameInput = document.getElementById('loginUsername');
+        if (usernameInput) {
+            usernameInput.focus();
         }
-    };
+    }
 }
 
 function logout() {
+    // Clear user data
     localStorage.removeItem(STORAGE_USER_KEY);
-    location.reload();
+    currentUser = null;
+    isAdmin = false;
+    selectedContact = null;
+    selectedChatId = null;
+    
+    // Reset UI
+    const mensajesDiv = document.getElementById('mensajes');
+    if (mensajesDiv) {
+        mensajesDiv.innerHTML = '';
+    }
+    
+    const usuarioInput = document.getElementById('usuario');
+    if (usuarioInput) {
+        usuarioInput.value = '';
+        usuarioInput.disabled = false;
+    }
+    
+    const mensajeInput = document.getElementById('mensaje');
+    if (mensajeInput) {
+        mensajeInput.value = '';
+    }
+    
+    // Show login view
+    showLoginView();
+    
+    // Disconnect Pusher if connected
+    if (pusher) {
+        pusher.disconnect();
+        pusher = null;
+        channel = null;
+    }
 }
 
 function prepararComposer() {
